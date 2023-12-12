@@ -1,6 +1,7 @@
 package board
 
 import (
+	"GameDemo/2048/core/game/board/block"
 	"fmt"
 	"github.com/hajimehoshi/ebiten/v2"
 	"golang.org/x/image/font"
@@ -17,15 +18,21 @@ type Board struct {
 	blockTextFont  font.Face
 	blockTextColor color.Color
 
-	blocks [4][4]*Block
+	blocks  [4][4]*block.Block
+	changed bool
+
+	updating bool
 }
 
 func NewBoard() *Board {
 	res := &Board{
 		blockTextFont:  bigFont,
 		blockTextColor: color.White,
-		blocks:         [4][4]*Block{},
+		blocks:         [4][4]*block.Block{},
+		changed:        false,
+		updating:       false,
 	}
+	res.changed = true
 	res.generateRandomBlockAtEmptySlot()
 	return res
 }
@@ -43,21 +50,15 @@ func (p *Board) drawBlocks(screen *ebiten.Image) {
 	p.drawBackground(screen)
 	//split screen into 16 blocks
 	//draw each block
-	geoM := ebiten.GeoM{}
+	//TODO use row col
 	widthUnit := float64(screen.Bounds().Size().X) / 4
 	heightUnit := float64(screen.Bounds().Size().Y) / 4
-	for row := 0; row < 4; row++ {
-		for col := 0; col < 4; col++ {
+	for row := 0; row < len(p.blocks); row++ {
+		for col := 0; col < len(p.blocks[row]); col++ {
 			if p.blocks[row][col] == nil {
 				continue
 			}
-			img := p.blocks[row][col].Render()
-			geoM.Reset()
-			geoM.Scale(widthUnit/100, heightUnit/100)
-			geoM.Translate(float64(col)*widthUnit, float64(row)*heightUnit)
-			screen.DrawImage(img, &ebiten.DrawImageOptions{
-				GeoM: geoM,
-			})
+			p.blocks[row][col].Draw(screen, widthUnit, heightUnit)
 		}
 	}
 }
@@ -85,20 +86,73 @@ func (p *Board) generateRandomBlockAtEmptySlot() {
 
 	r := generateRandomNumber(c)
 
-	p.blocks[emptySlot[r].row][emptySlot[r].col] = NewBlock(2, blockColor, p.blockTextFont, p.blockTextColor)
+	p.blocks[emptySlot[r].row][emptySlot[r].col] = block.NewBlock(2,
+		block.LogicalPosition{
+			X: emptySlot[r].col,
+			Y: emptySlot[r].row,
+		}, blockColor, p.blockTextFont, p.blockTextColor)
 }
 
-func (p *Board) AppendInput(key ebiten.Key) {
-	switch key {
-	case ebiten.KeyDown:
-		p.processVertical(true)
-	case ebiten.KeyUp:
-		p.processVertical(false)
-	case ebiten.KeyRight:
-		p.processHorizontal(true)
-	case ebiten.KeyLeft:
-		p.processHorizontal(false)
+func (p *Board) Update(keyList []ebiten.Key) {
+	p.updating = false
+	for row := 0; row < len(p.blocks); row++ {
+		for col := 0; col < len(p.blocks[row]); col++ {
+			if p.blocks[row][col] == nil {
+				continue
+			}
+			if !p.blocks[row][col].Update() {
+				p.updating = true
+			}
+		}
 	}
+
+	if p.updating {
+		return
+	}
+
+	if p.changed {
+		p.changed = false
+		newBlocks := [4][4]*block.Block{}
+		for row := 0; row < len(p.blocks); row++ {
+			for col := 0; col < len(p.blocks[row]); col++ {
+				if p.blocks[row][col] == nil {
+					continue
+				}
+				b := p.blocks[row][col]
+				pos := b.GetPos()
+				val := b.GetValue()
+				if newBlocks[pos.Y][pos.X] != nil {
+					newBlocks[pos.Y][pos.X].Show(val + newBlocks[pos.Y][pos.X].GetValue())
+				} else {
+					newBlocks[pos.Y][pos.X] = b
+				}
+			}
+		}
+
+		p.blocks = newBlocks
+		p.generateRandomBlockAtEmptySlot()
+		return
+	}
+
+	for i := 0; i < len(keyList); i++ {
+		switch keyList[i] {
+		case ebiten.KeyDown:
+			p.changed = p.moveVertical(true)
+			break
+		case ebiten.KeyUp:
+			p.changed = p.moveVertical(false)
+			break
+		case ebiten.KeyRight:
+			p.changed = p.moveHorizontal(true)
+			break
+		case ebiten.KeyLeft:
+			p.changed = p.moveHorizontal(false)
+			break
+		default:
+			continue
+		}
+	}
+
 }
 
 func (p *Board) processVertical(down bool) {
@@ -111,7 +165,7 @@ func (p *Board) processVertical(down bool) {
 				original[row] = 0
 				continue
 			}
-			original[row] = p.blocks[row][col].number
+			original[row] = p.blocks[row][col].Number
 		}
 
 		processed := processLine(original, down)
@@ -126,7 +180,10 @@ func (p *Board) processVertical(down bool) {
 			if processed[row] == 0 {
 				p.blocks[row][col] = nil
 			} else {
-				p.blocks[row][col] = NewBlock(processed[row], blockColor, p.blockTextFont, p.blockTextColor)
+				p.blocks[row][col] = block.NewBlock(processed[row], block.LogicalPosition{
+					X: col,
+					Y: row,
+				}, blockColor, p.blockTextFont, p.blockTextColor)
 			}
 		}
 	}
@@ -146,7 +203,7 @@ func (p *Board) processHorizontal(right bool) {
 				original[col] = 0
 				continue
 			}
-			original[col] = p.blocks[row][col].number
+			original[col] = p.blocks[row][col].Number
 		}
 
 		processed := processLine(original, right)
@@ -160,7 +217,10 @@ func (p *Board) processHorizontal(right bool) {
 			if processed[col] == 0 {
 				p.blocks[row][col] = nil
 			} else {
-				p.blocks[row][col] = NewBlock(processed[col], blockColor, p.blockTextFont, p.blockTextColor)
+				p.blocks[row][col] = block.NewBlock(processed[col], block.LogicalPosition{
+					X: col,
+					Y: row,
+				}, blockColor, p.blockTextFont, p.blockTextColor)
 			}
 		}
 	}
@@ -168,4 +228,239 @@ func (p *Board) processHorizontal(right bool) {
 	if changed {
 		p.generateRandomBlockAtEmptySlot()
 	}
+}
+
+func (p *Board) moveVertical(down bool) bool {
+	moved := false
+	for col := 0; col < len(p.blocks[0]); col++ {
+		line := make([]*block.Block, len(p.blocks))
+		for row := 0; row < len(line); row++ {
+			line[row] = p.blocks[row][col]
+		}
+
+		if down {
+			if p.moveLineVertical(line) {
+				moved = true
+			}
+		} else {
+			if p.moveLineVerticalReverse(line) {
+				moved = true
+			}
+		}
+	}
+	return moved
+}
+
+func (p *Board) moveHorizontal(right bool) bool {
+	moved := false
+	for row := 0; row < len(p.blocks); row++ {
+		line := make([]*block.Block, len(p.blocks[row]))
+		for col := 0; col < len(line); col++ {
+			line[col] = p.blocks[row][col]
+		}
+
+		if right {
+			if p.moveLineHorizontal(line) {
+				moved = true
+			}
+		} else {
+			if p.moveLineHorizontalReverse(line) {
+				moved = true
+			}
+		}
+	}
+	return moved
+}
+
+func (p *Board) moveLineVertical(line []*block.Block) bool {
+	currentPos := len(line) - 1
+	currentPosStack := 0
+	currentPosValue := 0
+
+	moved := false
+
+	insertBlock := func(b *block.Block) {
+		if b == nil {
+			return
+		}
+
+		if currentPosStack == 0 {
+			currentPosValue += b.Number
+			currentPosStack += 1
+			if b.MoveVertical(currentPos) {
+				moved = true
+			}
+			return
+		}
+
+		if currentPosStack == 1 && currentPosValue == b.GetValue() {
+
+			currentPosValue += b.Number
+			currentPosStack += 1
+			if b.MoveVertical(currentPos) {
+				moved = true
+			}
+			return
+
+		}
+
+		currentPos -= 1
+		currentPosValue = b.Number
+		currentPosStack = 1
+		if b.MoveVertical(currentPos) {
+			moved = true
+		}
+		return
+
+	}
+
+	for i := len(line) - 1; i >= 0; i-- {
+		insertBlock(line[i])
+	}
+
+	return moved
+}
+
+func (p *Board) moveLineVerticalReverse(line []*block.Block) bool {
+	currentPos := 0
+	currentPosStack := 0
+	currentPosValue := 0
+
+	moved := false
+
+	insertBlock := func(b *block.Block) {
+		if b == nil {
+			return
+		}
+
+		if currentPosStack == 0 {
+			currentPosValue += b.Number
+			currentPosStack += 1
+			if b.MoveVertical(currentPos) {
+				moved = true
+			}
+			return
+		}
+
+		if currentPosStack == 1 && currentPosValue == b.GetValue() {
+
+			currentPosValue += b.Number
+			currentPosStack += 1
+			if b.MoveVertical(currentPos) {
+				moved = true
+			}
+			return
+
+		}
+
+		currentPos += 1
+		currentPosValue = b.Number
+		currentPosStack = 1
+		if b.MoveVertical(currentPos) {
+			moved = true
+		}
+		return
+
+	}
+
+	for i := 0; i < len(line); i++ {
+		insertBlock(line[i])
+	}
+
+	return moved
+}
+
+func (p *Board) moveLineHorizontal(line []*block.Block) bool {
+	currentPos := len(line) - 1
+	currentPosStack := 0
+	currentPosValue := 0
+	moved := false
+
+	insertBlock := func(b *block.Block) {
+		if b == nil {
+			return
+		}
+
+		if currentPosStack == 0 {
+			currentPosValue += b.Number
+			currentPosStack += 1
+			if b.MoveHorizontal(currentPos) {
+				moved = true
+			}
+			return
+		}
+
+		if currentPosStack == 1 && currentPosValue == b.GetValue() {
+
+			currentPosValue += b.Number
+			currentPosStack += 1
+			if b.MoveHorizontal(currentPos) {
+				moved = true
+			}
+			return
+
+		}
+
+		currentPos -= 1
+		currentPosValue = b.Number
+		currentPosStack = 1
+		if b.MoveHorizontal(currentPos) {
+			moved = true
+		}
+		return
+
+	}
+
+	for i := len(line) - 1; i >= 0; i-- {
+		insertBlock(line[i])
+	}
+	return moved
+}
+
+func (p *Board) moveLineHorizontalReverse(line []*block.Block) bool {
+	currentPos := 0
+	currentPosStack := 0
+	currentPosValue := 0
+	moved := false
+
+	insertBlock := func(b *block.Block) {
+		if b == nil {
+			return
+		}
+
+		if currentPosStack == 0 {
+			currentPosValue += b.Number
+			currentPosStack += 1
+			if b.MoveHorizontal(currentPos) {
+				moved = true
+			}
+			return
+		}
+
+		if currentPosStack == 1 && currentPosValue == b.GetValue() {
+
+			currentPosValue += b.Number
+			currentPosStack += 1
+			if b.MoveHorizontal(currentPos) {
+				moved = true
+			}
+			return
+
+		}
+
+		currentPos += 1
+		currentPosValue = b.Number
+		currentPosStack = 1
+		if b.MoveHorizontal(currentPos) {
+			moved = true
+		}
+		return
+
+	}
+
+	for i := 0; i < len(line); i++ {
+		insertBlock(line[i])
+	}
+
+	return moved
 }

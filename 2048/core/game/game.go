@@ -2,7 +2,6 @@ package game
 
 import (
 	"GameDemo/2048/core/game/board"
-	"fmt"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
@@ -22,10 +21,9 @@ func NewGame() *Game {
 func (p *Game) Update() error {
 	var keyList = make([]ebiten.Key, 0, 10)
 	keyList = inpututil.AppendJustPressedKeys(keyList)
-	for i := 0; i < len(keyList); i++ {
-		fmt.Printf("key: %v\n", keyList[i])
-		p.board.AppendInput(keyList[i])
-	}
+
+	p.board.Update(keyList)
+
 	return nil
 }
 
@@ -34,5 +32,9 @@ func (p *Game) Draw(screen *ebiten.Image) {
 }
 
 func (p *Game) Layout(outW, outH int) (screenWidth, screenHeight int) {
-	return outW, outH
+	smaller := outW
+	if smaller > outH {
+		smaller = outH
+	}
+	return smaller, smaller
 }
