@@ -1,10 +1,10 @@
 package game
 
 import (
+	"GameDemo/2048/core/game/board"
 	"fmt"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"tomatoSister/2048/core/game/board"
 )
 
 var _ ebiten.Game = (*Game)(nil)

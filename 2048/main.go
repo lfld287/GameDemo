@@ -1,9 +1,9 @@
 package main
 
 import (
+	"GameDemo/2048/core/game"
 	"github.com/hajimehoshi/ebiten/v2"
 	"log"
-	"tomatoSister/2048/core/game"
 )
 
 func main() {
